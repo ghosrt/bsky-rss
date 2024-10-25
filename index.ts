@@ -136,17 +136,17 @@ const postToItem = async (
 
 app.get("/", async (c) => {
   const agent = c.get("agent") as BskyAgent;
-  const timeline = await agent.getTimeline();
+  const likes = await agent.getActorLikes();
   const feed = new Feed({
-    title: "bluesky links",
-    description: "RSS feed of all links found in posts of users you follow",
+    title: "bluesky liked posts",
+    description: "RSS feed of all links found in posts you liked.",
     id: "https://bsky.app/",
     link: "https://bsky.app/",
     language: "en-us",
     copyright: "",
   });
   const feedItems = await Promise.all(
-    timeline.data.feed.map((post) => {
+    likes.data.feed.map((post) => {
       return postToItem(agent, post);
     })
   );
