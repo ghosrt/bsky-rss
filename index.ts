@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { basicAuth } from "hono/basic-auth";
-import { cache } from "hono/cache"
+import { cache } from "hono/cache";
 import { AppBskyFeedPost, AtpAgent, RichText } from "@atproto/api";
 import { logger } from "hono/logger";
 import { Feed, Item } from "feed";
@@ -17,10 +17,6 @@ type Variables = {
 const app = new Hono<{ Variables: Variables }>();
 
 app.use(logger());
-app.use(cache({
-  cacheName: 'bsky-rss',
-  cacheControl: 'max-age=3600, must-revalidate',
-}));
 app.use(
   "/",
   basicAuth({
@@ -47,14 +43,16 @@ const validPostToItem = async (
   agent: AtpAgent,
   post: AppBskyFeedPost.Record,
   author: ProfileViewBasic,
-  uri: string
+  uri: string,
 ): Promise<Item | null> => {
   const rt = new RichText({
     text: post.text,
     facets: post.facets,
   });
 
-  const link = `https://bsky.app/profile/${author.handle}/${uri.split("/")[uri.split("/").length - 1]}`
+  const link = `https://bsky.app/profile/${author.handle}/${
+    uri.split("/")[uri.split("/").length - 1]
+  }`;
 
   let markdown = "";
   for (const segment of rt.segments()) {
@@ -94,7 +92,12 @@ async function postToItem(
   if (AppBskyFeedPost.isRecord(post.post.record)) {
     const res = await AppBskyFeedPost.validateRecord(post.post.record);
     if (res.success) {
-      return validPostToItem(agent, post.post.record, post.post.author, post.post.uri);
+      return validPostToItem(
+        agent,
+        post.post.record,
+        post.post.author,
+        post.post.uri,
+      );
     } else {
       console.error(res.error);
       return null;
@@ -105,31 +108,38 @@ async function postToItem(
   }
 }
 
-app.get("/", async (c) => {
-  const currentDate = new Date();
-  const agent = c.get("agent") as AtpAgent;
-  const likes = await agent.getActorLikes({ actor: agent.did! });
-  const feed = new Feed({
-    title: "BlueSky liked posts",
-    description: "RSS feed of all links found in posts you liked.",
-    id: "https://bsky.app/",
-    link: "https://bsky.app/",
-    language: "en-us",
-    copyright: "",
-  });
-  const feedItems = await Promise.all(
-    likes.data.feed.map((post) => {
-      return postToItem(agent, post);
-    }),
-  );
-  feedItems.forEach((item) => {
-    if (item) {
-      feed.addItem(item);
-    }
-  });
+app.get(
+  "/",
+  async (c) => {
+    const agent = c.get("agent") as AtpAgent;
+    const likes = await agent.getActorLikes({ actor: agent.did! });
+    const feed = new Feed({
+      title: "BlueSky liked posts",
+      description: "RSS feed of all links found in posts you liked.",
+      id: "https://bsky.app/",
+      link: "https://bsky.app/",
+      language: "en-us",
+      copyright: "",
+    });
+    const feedItems = await Promise.all(
+      likes.data.feed.map((post) => {
+        return postToItem(agent, post);
+      }),
+    );
+    feedItems.forEach((item) => {
+      if (item) {
+        feed.addItem(item);
+      }
+    });
 
-  c.res.headers.set("Content-Type", "application/rss+xml");
-  return c.text(feed.rss2());
-});
+    c.res.headers.set("Content-Type", "application/rss+xml");
+    c.res.headers.set("Expires", "max-age=3600, must-revalidate");
+    return c.text(feed.rss2());
+  },
+  cache({
+    cacheName: "bsky-liked-post-rss",
+    cacheControl: "max-age=3600, must-revalidate",
+  }),
+);
 
 export default app;
