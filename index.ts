@@ -1,14 +1,14 @@
-import { Hono } from "hono";
-import { basicAuth } from "hono/basic-auth";
-import { cache } from "hono/cache";
-import { AppBskyFeedPost, AtpAgent, RichText } from "@atproto/api";
-import { logger } from "hono/logger";
-import { Feed, Item } from "feed";
-import { FeedViewPost } from "@atproto/api/dist/client/types/app/bsky/feed/defs";
-import { JSDOM } from "jsdom";
-import DOMPurify from "dompurify";
-import { parse } from "marked";
-import { ProfileViewBasic } from "@atproto/api/dist/client/types/app/bsky/actor/defs";
+import { Hono } from "npm:hono";
+import { basicAuth } from "npm:hono/basic-auth";
+import { cache } from "npm:hono/cache";
+import { AppBskyFeedPost, AtpAgent, RichText } from "npm:@atproto/api";
+import { logger } from "npm:hono/logger";
+import { Feed, Item } from "npm:feed";
+import { FeedViewPost } from "npm:@atproto/api/dist/client/types/app/bsky/feed/defs";
+import { JSDOM } from "npm:jsdom";
+import DOMPurify from "npm:dompurify";
+import { parse } from "npm:marked";
+import { ProfileViewBasic } from "npm:@atproto/api/dist/client/types/app/bsky/actor/defs";
 
 type Variables = {
   agent: AtpAgent;

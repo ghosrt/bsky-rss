@@ -1,5 +1,4 @@
-FROM oven/bun
+FROM denoland/deno:alpine
 COPY . .
-RUN bun install
 EXPOSE 3000
-CMD ["bun", "index.ts"]
+CMD ["deno serve", "index.ts", "--port=3000"]
