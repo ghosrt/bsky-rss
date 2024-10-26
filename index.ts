@@ -136,7 +136,7 @@ const postToItem = async (
 
 app.get("/", async (c) => {
   const agent = c.get("agent") as BskyAgent;
-  const likes = await agent.getActorLikes();
+  const likes = await agent.getActorLikes({ actor: agent.did });
   const feed = new Feed({
     title: "bluesky liked posts",
     description: "RSS feed of all links found in posts you liked.",
