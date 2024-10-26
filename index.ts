@@ -1,27 +1,31 @@
 import { Hono } from "hono";
 import { basicAuth } from "hono/basic-auth";
-import { AppBskyFeedPost, BskyAgent, RichText } from "@atproto/api";
+import { cache } from "hono/cache"
+import { AppBskyFeedPost, AtpAgent, RichText } from "@atproto/api";
 import { logger } from "hono/logger";
 import { Feed, Item } from "feed";
 import { FeedViewPost } from "@atproto/api/dist/client/types/app/bsky/feed/defs";
-import { extract } from "@extractus/article-extractor";
 import { JSDOM } from "jsdom";
 import DOMPurify from "dompurify";
 import { parse } from "marked";
 import { ProfileViewBasic } from "@atproto/api/dist/client/types/app/bsky/actor/defs";
 
 type Variables = {
-  agent: BskyAgent;
+  agent: AtpAgent;
 };
 
 const app = new Hono<{ Variables: Variables }>();
 
 app.use(logger());
+app.use(cache({
+  cacheName: 'bsky-rss',
+  cacheControl: 'max-age=3600, must-revalidate',
+}));
 app.use(
   "/",
   basicAuth({
     async verifyUser(username, password, c) {
-      const agent = new BskyAgent({
+      const agent = new AtpAgent({
         service: "https://bsky.social",
       });
       c.set("agent", agent);
@@ -36,41 +40,23 @@ app.use(
         return false;
       }
     },
-  })
+  }),
 );
 
-const blockedDomains = ["bsky.app"];
-
-const findLink = (rt: RichText): string | undefined => {
-  return Array.from(rt.segments())
-    .reverse()
-    .find((seg) => {
-      if (seg.isLink()) {
-        const url = new URL(seg.link!.uri);
-        return !blockedDomains.includes(url.hostname);
-      } else {
-        return false;
-      }
-    })?.link?.uri;
-};
-
 const validPostToItem = async (
-  agent: BskyAgent,
+  agent: AtpAgent,
   post: AppBskyFeedPost.Record,
-  author: ProfileViewBasic
+  author: ProfileViewBasic,
+  uri: string
 ): Promise<Item | null> => {
   const rt = new RichText({
     text: post.text,
     facets: post.facets,
   });
-  const link = findLink(rt);
-  if (!link) {
-    return null;
-  }
 
-  let markdown = `
-  [${author.displayName}](https://bsky.app/profile/${author.handle}) posted:
-  `;
+  const link = `https://bsky.app/profile/${author.handle}/${uri.split("/")[uri.split("/").length - 1]}`
+
+  let markdown = "";
   for (const segment of rt.segments()) {
     if (segment.isLink()) {
       markdown += `[${segment.text}](${segment.link?.uri})`;
@@ -78,7 +64,8 @@ const validPostToItem = async (
       const author = await agent.getProfile({
         actor: segment.mention!.did,
       });
-      markdown += `[${segment.text}](https://bsky.app/profile/${author.data.handle})`;
+      markdown +=
+        `[${segment.text}](https://bsky.app/profile/${author.data.handle})`;
     } else {
       markdown += segment.text;
     }
@@ -90,23 +77,7 @@ const validPostToItem = async (
 
   console.log(JSON.stringify(post));
 
-  let title = post.embed?.title || `${post.text.slice(0, 50)}...`;
-
-  try {
-    const article = await extract(link);
-    if (article && article.content) {
-      content = `
-      ${content}
-      ---
-      ${article.content}
-      `;
-    }
-    if (article && article.title) {
-      title = article.title;
-    }
-  } catch (e) {
-    console.error(e);
-  }
+  const title = post.embed?.title || `${post.text.slice(0, 50)}...`;
 
   return {
     title: title as string,
@@ -116,14 +87,14 @@ const validPostToItem = async (
   };
 };
 
-const postToItem = async (
-  agent: BskyAgent,
-  post: FeedViewPost
-): Promise<Item | null> => {
+async function postToItem(
+  agent: AtpAgent,
+  post: FeedViewPost,
+): Promise<Item | null> {
   if (AppBskyFeedPost.isRecord(post.post.record)) {
-    const res = AppBskyFeedPost.validateRecord(post.post.record);
+    const res = await AppBskyFeedPost.validateRecord(post.post.record);
     if (res.success) {
-      return validPostToItem(agent, post.post.record, post.post.author);
+      return validPostToItem(agent, post.post.record, post.post.author, post.post.uri);
     } else {
       console.error(res.error);
       return null;
@@ -132,13 +103,14 @@ const postToItem = async (
     console.error("post is not a record");
     return null;
   }
-};
+}
 
 app.get("/", async (c) => {
-  const agent = c.get("agent") as BskyAgent;
-  const likes = await agent.getActorLikes({ actor: agent.did });
+  const currentDate = new Date();
+  const agent = c.get("agent") as AtpAgent;
+  const likes = await agent.getActorLikes({ actor: agent.did! });
   const feed = new Feed({
-    title: "bluesky liked posts",
+    title: "BlueSky liked posts",
     description: "RSS feed of all links found in posts you liked.",
     id: "https://bsky.app/",
     link: "https://bsky.app/",
@@ -148,7 +120,7 @@ app.get("/", async (c) => {
   const feedItems = await Promise.all(
     likes.data.feed.map((post) => {
       return postToItem(agent, post);
-    })
+    }),
   );
   feedItems.forEach((item) => {
     if (item) {
